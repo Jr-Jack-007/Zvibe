@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Bondr">
+<meta name="apple-mobile-web-app-title" content="Zvibe">
 <title>Zvibe — connect through what you love</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%237F77DD'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='34' font-family='Arial,sans-serif' fill='white'%3Ez%3C/text%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -271,89 +271,12 @@
       </div>
     </div>
 
-    <div class="match-cards">
-
-      <div class="match-card" onclick="showChat('Ananya', 'AN', '#7F77DD', 'ananya')">
-        <div class="match-card-header">
-          <div class="match-avatar" style="background:#EEEDFE;color:#534AB7">AN</div>
-          <div class="match-info">
-            <div class="match-name">Ananya, 24 <span class="verified-badge">✓</span></div>
-            <div class="match-location">📍 Kochi</div>
-          </div>
-          <div class="match-percent">
-            <span class="match-num">92%</span>
-            <span class="match-label">compatible</span>
-          </div>
-        </div>
-        <div class="match-tags">
-          <span class="mtag">📸 Photography</span>
-          <span class="mtag">🥾 Hiking</span>
-          <span class="mtag">📚 Books</span>
-        </div>
-        <div class="match-bar-wrap">
-          <div class="match-bar"><div class="match-bar-fill" style="width:92%"></div></div>
-        </div>
-        <div class="match-spark">💡 "What's one photo location in Kerala that everyone should visit?"</div>
-        <div class="match-actions">
-          <button class="action-pass">✕ pass</button>
-          <button class="action-connect" data-name="Ananya" data-initials="AN" data-color="#7F77DD" data-user-id="ananya">connect</button>
-        </div>
+    <div class="match-cards" id="discover-match-cards">
+      <div class="match-empty-state" id="discover-empty-state">
+        <div class="match-empty-icon">⌛</div>
+        <h3>loading your matches</h3>
+        <p>we’re finding people who share at least 2 interests with you</p>
       </div>
-
-      <div class="match-card" onclick="showChat('Rahul', 'RJ', '#1D9E75', 'rahul')">
-        <div class="match-card-header">
-          <div class="match-avatar" style="background:#E1F5EE;color:#0F6E56">RJ</div>
-          <div class="match-info">
-            <div class="match-name">Rahul, 27</div>
-            <div class="match-location">📍 Thrissur</div>
-          </div>
-          <div class="match-percent">
-            <span class="match-num">84%</span>
-            <span class="match-label">compatible</span>
-          </div>
-        </div>
-        <div class="match-tags">
-          <span class="mtag">🎵 Music</span>
-          <span class="mtag">✈️ Travel</span>
-          <span class="mtag">💡 Startups</span>
-        </div>
-        <div class="match-bar-wrap">
-          <div class="match-bar"><div class="match-bar-fill" style="width:84%;background:#1D9E75"></div></div>
-        </div>
-        <div class="match-spark">💡 "If you could visit one place in India you haven't been, where?"</div>
-        <div class="match-actions">
-          <button class="action-pass">✕ pass</button>
-          <button class="action-connect" data-name="Rahul" data-initials="RJ" data-color="#1D9E75" data-user-id="rahul">connect</button>
-        </div>
-      </div>
-
-      <div class="match-card" onclick="showChat('Meera', 'MK', '#D85A30', 'meera')">
-        <div class="match-card-header">
-          <div class="match-avatar" style="background:#FAECE7;color:#993C1D">MK</div>
-          <div class="match-info">
-            <div class="match-name">Meera, 22 <span class="verified-badge">✓</span></div>
-            <div class="match-location">📍 Ernakulam</div>
-          </div>
-          <div class="match-percent">
-            <span class="match-num">78%</span>
-            <span class="match-label">compatible</span>
-          </div>
-        </div>
-        <div class="match-tags">
-          <span class="mtag">🌙 Spirituality</span>
-          <span class="mtag">🧘 Yoga</span>
-          <span class="mtag">🎨 Art</span>
-        </div>
-        <div class="match-bar-wrap">
-          <div class="match-bar"><div class="match-bar-fill" style="width:78%;background:#D85A30"></div></div>
-        </div>
-        <div class="match-spark">💡 "What's a small habit that changed your life?"</div>
-        <div class="match-actions">
-          <button class="action-pass">✕ pass</button>
-          <button class="action-connect" data-name="Meera" data-initials="MK" data-color="#D85A30" data-user-id="meera">connect</button>
-        </div>
-      </div>
-
     </div>
   </div>
 
@@ -588,7 +511,7 @@
     <div class="profile-stats-row">
       <div class="pstat"><span class="pstat-num">3</span><span class="pstat-label">matches</span></div>
       <div class="pstat"><span class="pstat-num">2</span><span class="pstat-label">spaces joined</span></div>
-      <div class="pstat"><span class="pstat-num">14</span><span class="pstat-label">days on zvibe</span></div>
+      <div class="pstat"><span class="pstat-num">14</span><span class="pstat-label">days on Zvibe</span></div>
     </div>
     <div class="profile-section">
       <h3 class="profile-section-title">looking for</h3>
@@ -675,8 +598,8 @@
   <div class="app-content">
     <div class="settings-group">
       <div class="settings-label">account</div>
-      <div class="settings-item">change email</div>
-      <div class="settings-item">change password</div>
+      <button class="settings-item settings-action-btn" id="settings-change-email-btn" type="button">change email</button>
+      <button class="settings-item settings-action-btn" id="settings-change-password-btn" type="button">change password</button>
       <div class="settings-item">phone verification</div>
     </div>
     <div class="settings-group">
@@ -852,6 +775,44 @@
     <p class="modal-sub" id="confirm-modal-message">are you sure?</p>
     <button class="btn-primary full" id="confirm-modal-confirm" onclick="handleConfirmModalAction()">confirm</button>
     <button class="modal-cancel" id="confirm-modal-cancel" onclick="closeConfirmModal()">cancel</button>
+  </div>
+</div>
+
+<!-- Change Email Modal -->
+<div id="change-email-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="change-email-title" style="display:none" onclick="closeChangeEmailModal()">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <h3 class="modal-title" id="change-email-title">change email</h3>
+    <p class="modal-sub">enter your new email address</p>
+    <div class="account-modal-form">
+      <div class="form-group">
+        <label for="change-email-input">new email</label>
+        <input type="email" id="change-email-input" autocomplete="email" placeholder="new@email.com">
+      </div>
+      <div class="form-error" id="change-email-error"></div>
+      <button class="btn-primary full" id="change-email-submit-btn" type="button">update email</button>
+      <button class="modal-cancel" type="button" onclick="closeChangeEmailModal()">cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change Password Modal -->
+<div id="change-password-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="change-password-title" style="display:none" onclick="closeChangePasswordModal()">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <h3 class="modal-title" id="change-password-title">change password</h3>
+    <p class="modal-sub">choose a new password for your account</p>
+    <div class="account-modal-form">
+      <div class="form-group">
+        <label for="change-password-current-input">current password</label>
+        <input type="password" id="change-password-current-input" autocomplete="current-password" placeholder="current password">
+      </div>
+      <div class="form-group">
+        <label for="change-password-new-input">new password</label>
+        <input type="password" id="change-password-new-input" autocomplete="new-password" placeholder="at least 8 characters">
+      </div>
+      <div class="form-error" id="change-password-error"></div>
+      <button class="btn-primary full" id="change-password-submit-btn" type="button">update password</button>
+      <button class="modal-cancel" type="button" onclick="closeChangePasswordModal()">cancel</button>
+    </div>
   </div>
 </div>
 

@@ -1,6 +1,7 @@
-import { initializeApp } from './node_modules/firebase/firebase-app.js';
-import { deleteUser, getAuth, onAuthStateChanged, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from './node_modules/firebase/firebase-auth.js';
-import { getFirestore } from './node_modules/firebase/firestore/dist/index.esm.js';
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js';
+import { deleteUser, getAuth, onAuthStateChanged, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js';
+import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js';
+import { getStorage } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js';
 
 const firebaseConfig = {
   apiKey: 'REPLACE_WITH_FIREBASE_CONSOLE_VALUE',
@@ -14,5 +15,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
-export { auth, db, deleteUser, getFirestore, onAuthStateChanged, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithEmailAndPassword, signOut };
+export { auth, db, storage, deleteUser, getFirestore, onAuthStateChanged, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword };

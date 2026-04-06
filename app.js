@@ -1,7 +1,8 @@
-import { auth, db, createUserWithEmailAndPassword, deleteUser, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from './firebase-config.js';
-import { addDoc, collection, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, setDoc } from './node_modules/firebase/firestore/dist/index.esm.js';
+import { auth, db, storage, createUserWithEmailAndPassword, deleteUser, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword } from './firebase-config.js';
+import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js';
+import { getDownloadURL, ref, uploadBytes } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js';
 
-// ===== ZVIBE APP LOGIC =====
+// ===== Zvibe APP LOGIC =====
 (function() {
 
 const passwordShowIcon = `
@@ -28,6 +29,33 @@ function togglePasswordVisibility(inputId, button) {
   button.innerHTML = isPasswordHidden ? passwordHideIcon : passwordShowIcon;
 }
 
+function setButtonLoading(btn, isLoading) {
+  if (!btn) return;
+
+  if (isLoading) {
+    if (btn.dataset.loading === 'true') return;
+
+    btn.dataset.loading = 'true';
+    btn.dataset.originalHtml = btn.innerHTML;
+    btn.dataset.wasDisabled = btn.disabled ? 'true' : 'false';
+    btn.disabled = true;
+    btn.classList.add('is-loading');
+    btn.setAttribute('aria-busy', 'true');
+
+    const loadingText = btn.dataset.loadingText || 'loading...';
+    btn.innerHTML = `<span class="btn-loading-content"><span class="btn-spinner" aria-hidden="true"></span><span>${loadingText}</span></span>`;
+    return;
+  }
+
+  if (btn.dataset.loading !== 'true') return;
+
+  btn.innerHTML = btn.dataset.originalHtml || btn.innerHTML;
+  btn.disabled = btn.dataset.wasDisabled === 'true';
+  btn.classList.remove('is-loading');
+  btn.removeAttribute('aria-busy');
+  btn.dataset.loading = 'false';
+}
+
 function setSignupFirebaseError(error) {
   const emailError = document.getElementById('error-email');
   const passError = document.getElementById('error-pass');
@@ -48,6 +76,14 @@ let selectedIntent = '';
 let selectedChatUserId = '';
 let currentChatRoomId = '';
 let unsubscribeChatMessages = null;
+let currentUserProfileCache = null;
+
+const discoverAccentPalette = [
+  { background: '#EEEDFE', color: '#534AB7', bar: '#7F77DD' },
+  { background: '#E1F5EE', color: '#0F6E56', bar: '#1D9E75' },
+  { background: '#FAECE7', color: '#993C1D', bar: '#D85A30' },
+  { background: '#FAEEDA', color: '#854F0B', bar: '#BA7517' }
+];
 
 function stopChatListener() {
   if (unsubscribeChatMessages) {
@@ -77,7 +113,9 @@ function renderChatMessages(snapshot) {
   snapshot.forEach(docSnapshot => {
     const messageData = docSnapshot.data();
     const messageEl = document.createElement('div');
-    const isSentByCurrentUser = messageData.senderId === auth.currentUser?.uid;
+    const isSentByCurrentUser = auth.currentUser
+      ? messageData.senderId === auth.currentUser.uid
+      : false;
 
     messageEl.className = `msg ${isSentByCurrentUser ? 'sent' : 'received'}`;
     messageEl.textContent = messageData.text || '';
@@ -135,10 +173,22 @@ function renderMyProfile(profileData) {
   const name = profileData?.name || 'Your profile';
   const city = profileData?.city || 'add your city';
   const bio = profileData?.bio || 'add a bio to tell people what you’re about.';
+  const photoURL = profileData?.photoURL || '';
   const interests = Array.isArray(profileData?.interests) ? profileData.interests : [];
   const intent = profileData?.intent || 'add your intent';
 
-  avatarEl.textContent = getProfileInitials(name);
+  avatarEl.innerHTML = '';
+  if (photoURL) {
+    const imgEl = document.createElement('img');
+    imgEl.src = photoURL;
+    imgEl.alt = `${name} profile photo`;
+    avatarEl.appendChild(imgEl);
+    avatarEl.classList.add('has-photo');
+  } else {
+    avatarEl.textContent = getProfileInitials(name);
+    avatarEl.classList.remove('has-photo');
+  }
+
   nameEl.textContent = name;
   locationEl.textContent = `📍 ${city}`;
   bioEl.textContent = bio;
@@ -161,6 +211,277 @@ function renderMyProfile(profileData) {
   intentEl.textContent = intent;
 }
 
+function normalizeInterestValue(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"]/g, character => {
+    switch (character) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      default: return character;
+    }
+  });
+}
+
+function calculateCompatibility(sharedCount, currentInterestCount, otherInterestCount) {
+  const averageInterestCount = Math.max(1, (currentInterestCount + otherInterestCount) / 2);
+  return Math.min(100, Math.max(0, Math.round((sharedCount / averageInterestCount) * 100)));
+}
+
+function createMatchCard(match, index) {
+  const card = document.createElement('div');
+  const accent = discoverAccentPalette[index % discoverAccentPalette.length];
+  const sharedTags = match.sharedInterests.slice(0, 3);
+  const escapedName = escapeHtml(match.name);
+  const escapedCity = escapeHtml(match.city || '');
+  const escapedBio = escapeHtml(match.bio || 'say hi and start the conversation.');
+
+  card.className = 'match-card';
+  card.dataset.userId = match.userId;
+  card.dataset.name = match.name;
+  card.dataset.initials = match.initials;
+  card.dataset.color = accent.bar;
+
+  card.innerHTML = `
+    <div class="match-card-header">
+      <div class="match-avatar" style="background:${accent.background};color:${accent.color}">${match.initials}</div>
+      <div class="match-info">
+        <div class="match-name">${escapedName}</div>
+        <div class="match-location">📍 ${escapedCity || 'location not shared'}</div>
+      </div>
+      <div class="match-percent">
+        <span class="match-num">${match.compatibility}%</span>
+        <span class="match-label">compatible</span>
+      </div>
+    </div>
+    <div class="match-tags">
+      ${sharedTags.map(tag => `<span class="mtag">${escapeHtml(tag)}</span>`).join('')}
+      ${match.sharedInterests.length > sharedTags.length ? `<span class="mtag">+${match.sharedInterests.length - sharedTags.length} more</span>` : ''}
+    </div>
+    <div class="match-bar-wrap">
+      <div class="match-bar"><div class="match-bar-fill" style="width:${match.compatibility}%;background:${accent.bar}"></div></div>
+    </div>
+    <div class="match-spark">💡 "${escapedBio}"</div>
+    <div class="match-actions">
+      <button class="action-pass" type="button">✕ pass</button>
+      <button class="action-connect" type="button" data-name="${escapedName}" data-initials="${match.initials}" data-color="${accent.bar}" data-user-id="${match.userId}">connect</button>
+    </div>
+  `;
+
+  wireMatchCardInteractions(card);
+  return card;
+}
+
+function wireMatchCardInteractions(card) {
+  if (!card) return;
+
+  const connectBtn = card.querySelector('.action-connect');
+  const passBtn = card.querySelector('.action-pass');
+
+  card.addEventListener('click', event => {
+    if (event.target.closest('button')) return;
+    showChat(card.dataset.name, card.dataset.initials, card.dataset.color, card.dataset.userId);
+  });
+
+  if (passBtn) {
+    passBtn.addEventListener('click', event => {
+      event.stopPropagation();
+      removeMatchCard(card);
+    });
+  }
+
+  if (connectBtn) {
+    connectBtn.addEventListener('click', event => {
+      event.stopPropagation();
+      showChat(connectBtn.dataset.name, connectBtn.dataset.initials, connectBtn.dataset.color, connectBtn.dataset.userId);
+    });
+  }
+
+  let startX = 0;
+  let moveX = 0;
+  let isDragging = false;
+
+  const handleSwipeEnd = () => {
+    card.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+
+    if (moveX > 100) {
+      card.style.transform = 'translateX(120%) rotate(20deg)';
+      setTimeout(() => {
+        card.remove();
+        updateMatchEmptyState();
+      }, 300);
+    } else if (moveX < -100) {
+      card.style.transform = 'translateX(-120%) rotate(-20deg)';
+      setTimeout(() => {
+        card.remove();
+        updateMatchEmptyState();
+      }, 300);
+    } else {
+      card.style.transform = 'translateX(0) rotate(0)';
+    }
+
+    startX = 0;
+    moveX = 0;
+    isDragging = false;
+  };
+
+  card.addEventListener('touchstart', event => {
+    startX = event.touches[0].clientX;
+    moveX = 0;
+    isDragging = true;
+    card.style.transition = 'none';
+  }, { passive: true });
+
+  card.addEventListener('touchmove', event => {
+    if (!isDragging) return;
+    moveX = event.touches[0].clientX - startX;
+    card.style.transform = `translateX(${moveX}px) rotate(${moveX / 20}deg)`;
+  }, { passive: true });
+
+  card.addEventListener('touchend', handleSwipeEnd);
+
+  card.addEventListener('mousedown', event => {
+    if (event.button !== 0) return;
+    isDragging = true;
+    startX = event.clientX;
+    moveX = 0;
+    card.style.transition = 'none';
+    event.preventDefault();
+  });
+
+  card.addEventListener('mousemove', event => {
+    if (!isDragging) return;
+    moveX = event.clientX - startX;
+    card.style.transform = `translateX(${moveX}px) rotate(${moveX / 20}deg)`;
+    event.preventDefault();
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!isDragging) return;
+    handleSwipeEnd();
+  });
+
+  card.addEventListener('dragstart', event => {
+    event.preventDefault();
+  });
+}
+
+function renderDiscoverLoadingState() {
+  const matchCards = document.getElementById('discover-match-cards');
+  if (!matchCards) return;
+
+  matchCards.innerHTML = `
+    <div class="match-empty-state" id="discover-empty-state">
+      <div class="match-empty-icon">⌛</div>
+      <h3>loading your matches</h3>
+      <p>we’re finding people who share at least 2 interests with you</p>
+    </div>
+  `;
+}
+
+function renderDiscoverEmptyState(title, message) {
+  const matchCards = document.getElementById('discover-match-cards');
+  if (!matchCards) return;
+
+  matchCards.innerHTML = `
+    <div class="match-empty-state" id="discover-empty-state">
+      <div class="match-empty-icon">🎉</div>
+      <h3>${title}</h3>
+      <p>${message}</p>
+      <button class="btn-primary" type="button" onclick="showScreen('screen-myprofile')">edit profile</button>
+    </div>
+  `;
+}
+
+function renderDiscoverMatches(matches) {
+  const matchCards = document.getElementById('discover-match-cards');
+  if (!matchCards) return;
+
+  if (!matches.length) {
+    renderDiscoverEmptyState(
+      'no matches yet',
+      'add more interests or check back later for people who share your vibe'
+    );
+    return;
+  }
+
+  matchCards.innerHTML = '';
+  matches.forEach((match, index) => {
+    matchCards.appendChild(createMatchCard(match, index));
+  });
+
+  animateMatchBars();
+}
+
+async function loadDiscoverMatches() {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    renderDiscoverEmptyState(
+      'sign in to see matches',
+      'discover works after you create an account and choose your interests'
+    );
+    return;
+  }
+
+  const currentProfile = currentUserProfileCache || await loadCurrentUserProfile();
+  const currentInterests = Array.isArray(currentProfile?.interests) ? currentProfile.interests.map(normalizeInterestValue).filter(Boolean) : [];
+
+  if (currentInterests.length < 2) {
+    renderDiscoverEmptyState(
+      'add a few interests first',
+      'we need at least 2 interests to find compatible people'
+    );
+    return;
+  }
+
+  renderDiscoverLoadingState();
+
+  try {
+    const snapshot = await getDocs(collection(db, 'users'));
+    const matches = [];
+
+    snapshot.forEach(userDoc => {
+      if (userDoc.id === currentUser.uid) return;
+
+      const userData = userDoc.data();
+      const otherInterests = Array.isArray(userData.interests) ? userData.interests.map(normalizeInterestValue).filter(Boolean) : [];
+      const sharedInterests = currentInterests.filter(interest => otherInterests.includes(interest));
+
+      if (sharedInterests.length < 2) return;
+
+      matches.push({
+        userId: userDoc.id,
+        name: userData.name || 'Anonymous',
+        city: userData.city || '',
+        bio: userData.bio || '',
+        intent: userData.intent || '',
+        interests: otherInterests,
+        sharedInterests,
+        initials: getProfileInitials(userData.name || 'Anonymous'),
+        compatibility: calculateCompatibility(sharedInterests.length, currentInterests.length, otherInterests.length)
+      });
+    });
+
+    matches.sort((a, b) => {
+      if (b.compatibility !== a.compatibility) return b.compatibility - a.compatibility;
+      if (b.sharedInterests.length !== a.sharedInterests.length) return b.sharedInterests.length - a.sharedInterests.length;
+      return a.name.localeCompare(b.name);
+    });
+
+    renderDiscoverMatches(matches.slice(0, 5));
+  } catch (error) {
+    console.error('failed to load discover matches', error);
+    renderDiscoverEmptyState(
+      'could not load matches',
+      'check your connection and try again'
+    );
+  }
+}
+
 async function loadCurrentUserProfile() {
   const currentUser = auth.currentUser;
   if (!currentUser) return null;
@@ -169,6 +490,7 @@ async function loadCurrentUserProfile() {
     const snapshot = await getDoc(doc(db, 'users', currentUser.uid));
     if (snapshot.exists()) {
       const profileData = snapshot.data();
+      currentUserProfileCache = profileData;
       renderMyProfile(profileData);
       return profileData;
     }
@@ -243,14 +565,26 @@ async function saveCurrentUserProfile() {
   }
 
   const profile = getCurrentProfileValues();
+  const photoInput = document.getElementById('photo-input');
+  const photoFile = photoInput?.files?.[0] || null;
   const userRef = doc(db, 'users', currentUser.uid);
   const existingSnapshot = await getDoc(userRef);
+
+  let photoURL = existingSnapshot.exists() ? (existingSnapshot.data()?.photoURL || '') : '';
+  if (photoFile) {
+    const avatarRef = ref(storage, `avatars/${currentUser.uid}.jpg`);
+    await uploadBytes(avatarRef, photoFile, {
+      contentType: photoFile.type || 'image/jpeg'
+    });
+    photoURL = await getDownloadURL(avatarRef);
+  }
 
   const profilePayload = {
     name: profile.name,
     email: profile.email,
     city: profile.city,
     bio: profile.bio,
+    photoURL,
     interests: profile.interests,
     intent: profile.intent,
     updatedAt: serverTimestamp()
@@ -261,6 +595,7 @@ async function saveCurrentUserProfile() {
   }
 
   await setDoc(userRef, profilePayload, { merge: true });
+  currentUserProfileCache = profilePayload;
 }
 
 // Validate signup form
@@ -419,6 +754,10 @@ function showScreen(id) {
       loadCurrentUserProfile();
     }
 
+      if (id === 'screen-home') {
+        loadDiscoverMatches();
+      }
+
     if (id === 'screen-editprofile') {
       loadEditProfileForm();
     }
@@ -556,18 +895,12 @@ async function sendMessage() {
   lastMessageTime = now;
 
   const input = document.getElementById('chat-input');
-  const messages = document.getElementById('chat-messages');
-  if (!input || !messages) return;
+  if (!input) return;
+
   const text = input.value.trim();
   if (!text || !auth.currentUser || !currentChatRoomId) return;
 
-  // Add sent message
-  const msg = document.createElement('div');
-  msg.className = 'msg sent';
-  msg.textContent = text;
-  messages.appendChild(msg);
   input.value = '';
-  messages.scrollTop = messages.scrollHeight;
 
   try {
     await addDoc(collection(db, 'chats', currentChatRoomId, 'messages'), {
@@ -577,35 +910,8 @@ async function sendMessage() {
     });
   } catch (error) {
     console.error('failed to send message', error);
+    input.value = text;
   }
-
-  const typingIndicator = document.createElement('div');
-  typingIndicator.className = 'msg received typing-indicator';
-  typingIndicator.id = 'typing-indicator';
-  typingIndicator.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
-  messages.appendChild(typingIndicator);
-  messages.scrollTop = messages.scrollHeight;
-
-  // Simulate a reply after a short delay
-  setTimeout(() => {
-    const existingTypingIndicator = document.getElementById('typing-indicator');
-    if (existingTypingIndicator) existingTypingIndicator.remove();
-
-    const replies = [
-      "that's so interesting! tell me more 😊",
-      "haha yes!! totally agree with that 📸",
-      "wow we really do have so much in common!",
-      "I was thinking the exact same thing!",
-      "okay now I'm even more curious about you 👀",
-      "that made me smile honestly 😄",
-      "100%! we should definitely meet up sometime",
-    ];
-    const reply = document.createElement('div');
-    reply.className = 'msg received';
-    reply.textContent = replies[Math.floor(Math.random() * replies.length)];
-    messages.appendChild(reply);
-    messages.scrollTop = messages.scrollHeight;
-  }, 1200);
 }
 
 async function handleForgotPassword() {
@@ -695,6 +1001,8 @@ function sendSpark() {
 
 let confirmModalOnConfirm = null;
 let reportFocusTrapCleanup = null;
+let changeEmailFocusTrapCleanup = null;
+let changePasswordFocusTrapCleanup = null;
 
 function trapFocus(modalElement) {
   if (!modalElement) {
@@ -757,6 +1065,165 @@ function closeConfirmModal() {
 
   modal.style.display = 'none';
   confirmModalOnConfirm = null;
+}
+
+function openChangeEmailModal() {
+  const modal = document.getElementById('change-email-modal');
+  const input = document.getElementById('change-email-input');
+  const errorEl = document.getElementById('change-email-error');
+
+  if (!modal || !input || !errorEl) return;
+
+  input.value = '';
+  errorEl.textContent = '';
+  modal.style.display = 'flex';
+  changeEmailFocusTrapCleanup = trapFocus(modal);
+  input.focus();
+}
+
+function closeChangeEmailModal() {
+  const modal = document.getElementById('change-email-modal');
+  if (!modal) return;
+
+  modal.style.display = 'none';
+  if (changeEmailFocusTrapCleanup) {
+    changeEmailFocusTrapCleanup();
+    changeEmailFocusTrapCleanup = null;
+  }
+}
+
+async function submitChangeEmail() {
+  const input = document.getElementById('change-email-input');
+  const errorEl = document.getElementById('change-email-error');
+  const submitBtn = document.getElementById('change-email-submit-btn');
+  const currentUser = auth.currentUser;
+
+  if (!input || !errorEl || !submitBtn) return;
+
+  errorEl.textContent = '';
+  if (!currentUser) {
+    errorEl.textContent = 'you must be signed in to update your email';
+    return;
+  }
+
+  const newEmail = input.value.trim();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!newEmail || !emailRegex.test(newEmail)) {
+    errorEl.textContent = 'please enter a valid email address';
+    return;
+  }
+
+  setButtonLoading(submitBtn, true);
+  try {
+    await updateEmail(currentUser, newEmail);
+    await setDoc(doc(db, 'users', currentUser.uid), {
+      email: newEmail,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    if (currentUserProfileCache) {
+      currentUserProfileCache.email = newEmail;
+    }
+
+    closeChangeEmailModal();
+    showConfirmModal('email updated', 'your account email has been updated successfully.');
+  } catch (error) {
+    if (error?.code === 'auth/requires-recent-login') {
+      errorEl.textContent = 'for security, please sign in again and try updating your email.';
+      return;
+    }
+
+    if (error?.code === 'auth/email-already-in-use') {
+      errorEl.textContent = 'that email is already in use by another account';
+      return;
+    }
+
+    if (error?.code === 'auth/invalid-email') {
+      errorEl.textContent = 'please enter a valid email address';
+      return;
+    }
+
+    errorEl.textContent = error?.message || 'unable to update email right now';
+  } finally {
+    setButtonLoading(submitBtn, false);
+  }
+}
+
+function openChangePasswordModal() {
+  const modal = document.getElementById('change-password-modal');
+  const currentInput = document.getElementById('change-password-current-input');
+  const newInput = document.getElementById('change-password-new-input');
+  const errorEl = document.getElementById('change-password-error');
+
+  if (!modal || !currentInput || !newInput || !errorEl) return;
+
+  currentInput.value = '';
+  newInput.value = '';
+  errorEl.textContent = '';
+  modal.style.display = 'flex';
+  changePasswordFocusTrapCleanup = trapFocus(modal);
+  currentInput.focus();
+}
+
+function closeChangePasswordModal() {
+  const modal = document.getElementById('change-password-modal');
+  if (!modal) return;
+
+  modal.style.display = 'none';
+  if (changePasswordFocusTrapCleanup) {
+    changePasswordFocusTrapCleanup();
+    changePasswordFocusTrapCleanup = null;
+  }
+}
+
+async function submitChangePassword() {
+  const currentInput = document.getElementById('change-password-current-input');
+  const newInput = document.getElementById('change-password-new-input');
+  const errorEl = document.getElementById('change-password-error');
+  const submitBtn = document.getElementById('change-password-submit-btn');
+  const currentUser = auth.currentUser;
+
+  if (!currentInput || !newInput || !errorEl || !submitBtn) return;
+
+  errorEl.textContent = '';
+  if (!currentUser) {
+    errorEl.textContent = 'you must be signed in to update your password';
+    return;
+  }
+
+  const currentPassword = currentInput.value;
+  const newPassword = newInput.value;
+
+  if (!currentPassword) {
+    errorEl.textContent = 'please enter your current password';
+    return;
+  }
+
+  if (!newPassword || newPassword.length < 8) {
+    errorEl.textContent = 'new password must be at least 8 characters';
+    return;
+  }
+
+  setButtonLoading(submitBtn, true);
+  try {
+    await updatePassword(currentUser, newPassword);
+    closeChangePasswordModal();
+    showConfirmModal('password updated', 'your password has been changed successfully.');
+  } catch (error) {
+    if (error?.code === 'auth/requires-recent-login') {
+      errorEl.textContent = 'for security, please sign in again and then update your password.';
+      return;
+    }
+
+    if (error?.code === 'auth/weak-password') {
+      errorEl.textContent = 'please choose a stronger password';
+      return;
+    }
+
+    errorEl.textContent = error?.message || 'unable to update password right now';
+  } finally {
+    setButtonLoading(submitBtn, false);
+  }
 }
 
 function handleConfirmModalAction() {
@@ -920,13 +1387,17 @@ window.addEventListener('DOMContentLoaded', () => {
   const chatInputEl = document.getElementById('chat-input');
   const chatSendBtn = document.querySelector('.chat-send-btn');
   const reportBtn = document.querySelector('.report-btn');
+  const changeEmailBtn = document.getElementById('settings-change-email-btn');
+  const changePasswordBtn = document.getElementById('settings-change-password-btn');
+  const changeEmailSubmitBtn = document.getElementById('change-email-submit-btn');
+  const changePasswordSubmitBtn = document.getElementById('change-password-submit-btn');
+  const changeEmailInput = document.getElementById('change-email-input');
+  const changePasswordCurrentInput = document.getElementById('change-password-current-input');
+  const changePasswordNewInput = document.getElementById('change-password-new-input');
   const onboardingInterestTags = document.querySelectorAll('#screen-interests .interest-tag');
   const intentButtons = document.querySelectorAll('#screen-intent .intent-btn');
   const bottomNavButtons = document.querySelectorAll('.bottom-nav .bnav-btn[data-screen]');
-  const matchPassButtons = document.querySelectorAll('.match-card .action-pass');
-  const matchConnectButtons = document.querySelectorAll('.match-card .action-connect');
   const spaceJoinButtons = document.querySelectorAll('.space-join-btn');
-  const matchCards = document.querySelectorAll('.match-card');
 
   if (landingSignInBtn) {
     landingSignInBtn.addEventListener('click', () => {
@@ -941,12 +1412,19 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   if (signupContinueBtn) {
-    signupContinueBtn.addEventListener('click', () => {
-      validateSignup();
+    signupContinueBtn.dataset.loadingText = 'creating account...';
+    signupContinueBtn.addEventListener('click', async () => {
+      setButtonLoading(signupContinueBtn, true);
+      try {
+        await validateSignup();
+      } finally {
+        setButtonLoading(signupContinueBtn, false);
+      }
     });
   }
 
   if (loginSubmitBtn) {
+    loginSubmitBtn.dataset.loadingText = 'signing in...';
     loginSubmitBtn.addEventListener('click', async () => {
       if (loginErrorEl) {
         loginErrorEl.textContent = '';
@@ -962,6 +1440,7 @@ window.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
+      setButtonLoading(loginSubmitBtn, true);
       try {
         await signInWithEmailAndPassword(auth, email, pass);
         showScreen('screen-home');
@@ -969,13 +1448,21 @@ window.addEventListener('DOMContentLoaded', () => {
         if (loginErrorEl) {
           loginErrorEl.textContent = error?.message || 'unable to sign in';
         }
+      } finally {
+        setButtonLoading(loginSubmitBtn, false);
       }
     });
   }
 
   if (forgotSubmitBtn) {
-    forgotSubmitBtn.addEventListener('click', () => {
-      handleForgotPassword();
+    forgotSubmitBtn.dataset.loadingText = 'sending link...';
+    forgotSubmitBtn.addEventListener('click', async () => {
+      setButtonLoading(forgotSubmitBtn, true);
+      try {
+        await handleForgotPassword();
+      } finally {
+        setButtonLoading(forgotSubmitBtn, false);
+      }
     });
   }
 
@@ -998,27 +1485,35 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   if (createProfileBtn) {
+    createProfileBtn.dataset.loadingText = 'creating profile...';
     createProfileBtn.addEventListener('click', async () => {
       showProfileSaveError('');
+      setButtonLoading(createProfileBtn, true);
 
       try {
         await saveCurrentUserProfile();
         showScreen('screen-welcome');
       } catch (error) {
         showProfileSaveError(error?.message || 'unable to save your profile');
+      } finally {
+        setButtonLoading(createProfileBtn, false);
       }
     });
   }
 
   if (editProfileSaveBtn) {
+    editProfileSaveBtn.dataset.loadingText = 'saving changes...';
     editProfileSaveBtn.addEventListener('click', async () => {
       showProfileSaveError('');
+      setButtonLoading(editProfileSaveBtn, true);
 
       try {
         await saveEditedProfile();
         showScreen('screen-myprofile');
       } catch (error) {
         showProfileSaveError(error?.message || 'unable to save your profile changes');
+      } finally {
+        setButtonLoading(editProfileSaveBtn, false);
       }
     });
   }
@@ -1029,21 +1524,6 @@ window.addEventListener('DOMContentLoaded', () => {
       if (targetScreen) {
         showScreen(targetScreen);
       }
-    });
-  });
-
-  matchPassButtons.forEach(btn => {
-    btn.addEventListener('click', event => {
-      event.stopPropagation();
-      const card = btn.closest('.match-card');
-      removeMatchCard(card);
-    });
-  });
-
-  matchConnectButtons.forEach(btn => {
-    btn.addEventListener('click', event => {
-      event.stopPropagation();
-      showChat(btn.dataset.name, btn.dataset.initials, btn.dataset.color, btn.dataset.userId);
     });
   });
 
@@ -1062,6 +1542,53 @@ window.addEventListener('DOMContentLoaded', () => {
     reportBtn.addEventListener('click', () => {
       showReport();
     });
+  }
+
+  if (changeEmailBtn) {
+    changeEmailBtn.addEventListener('click', () => {
+      openChangeEmailModal();
+    });
+  }
+
+  if (changePasswordBtn) {
+    changePasswordBtn.addEventListener('click', () => {
+      openChangePasswordModal();
+    });
+  }
+
+  if (changeEmailSubmitBtn) {
+    changeEmailSubmitBtn.dataset.loadingText = 'updating email...';
+    changeEmailSubmitBtn.addEventListener('click', () => {
+      submitChangeEmail();
+    });
+  }
+
+  if (changePasswordSubmitBtn) {
+    changePasswordSubmitBtn.dataset.loadingText = 'updating password...';
+    changePasswordSubmitBtn.addEventListener('click', () => {
+      submitChangePassword();
+    });
+  }
+
+  if (changeEmailInput) {
+    changeEmailInput.addEventListener('keyup', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        submitChangeEmail();
+      }
+    });
+  }
+
+  if (changePasswordCurrentInput && changePasswordNewInput) {
+    const handlePasswordEnter = event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        submitChangePassword();
+      }
+    };
+
+    changePasswordCurrentInput.addEventListener('keyup', handlePasswordEnter);
+    changePasswordNewInput.addEventListener('keyup', handlePasswordEnter);
   }
 
   if (chatSendBtn) {
@@ -1094,76 +1621,6 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  matchCards.forEach(card => {
-    let startX = 0;
-    let moveX = 0;
-    let isDragging = false;
-
-    const handleSwipeEnd = () => {
-      card.style.transition = 'transform 0.3s ease';
-
-      if (moveX > 100) {
-        card.style.transform = 'translateX(120%) rotate(20deg)';
-        setTimeout(() => {
-          card.remove();
-          updateMatchEmptyState();
-        }, 300);
-      } else if (moveX < -100) {
-        card.style.transform = 'translateX(-120%) rotate(-20deg)';
-        setTimeout(() => {
-          card.remove();
-          updateMatchEmptyState();
-        }, 300);
-      } else {
-        card.style.transform = 'translateX(0) rotate(0)';
-      }
-
-      startX = 0;
-      moveX = 0;
-      isDragging = false;
-    };
-
-    card.addEventListener('touchstart', event => {
-      startX = event.touches[0].clientX;
-      moveX = 0;
-      isDragging = true;
-      card.style.transition = 'none';
-    }, { passive: true });
-
-    card.addEventListener('touchmove', event => {
-      if (!isDragging) return;
-      moveX = event.touches[0].clientX - startX;
-      card.style.transform = `translateX(${moveX}px) rotate(${moveX / 20}deg)`;
-    }, { passive: true });
-
-    card.addEventListener('touchend', handleSwipeEnd);
-
-    card.addEventListener('mousedown', event => {
-      if (event.button !== 0) return;
-      isDragging = true;
-      startX = event.clientX;
-      moveX = 0;
-      card.style.transition = 'none';
-      event.preventDefault();
-    });
-
-    card.addEventListener('mousemove', event => {
-      if (!isDragging) return;
-      moveX = event.clientX - startX;
-      card.style.transform = `translateX(${moveX}px) rotate(${moveX / 20}deg)`;
-      event.preventDefault();
-    });
-
-    window.addEventListener('mouseup', () => {
-      if (!isDragging) return;
-      handleSwipeEnd();
-    });
-
-    card.addEventListener('dragstart', event => {
-      event.preventDefault();
-    });
-  });
-
   onAuthStateChanged(auth, user => {
     const currentActiveScreen = document.querySelector('.screen.active');
     const currentActiveScreenId = currentActiveScreen ? currentActiveScreen.id : '';
@@ -1172,6 +1629,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (user) {
       if (!currentActiveScreenId || authScreens.includes(currentActiveScreenId)) {
         showScreen('screen-home');
+      } else if (currentActiveScreenId === 'screen-home') {
+        loadDiscoverMatches();
       }
       return;
     }
@@ -1202,6 +1661,12 @@ Object.assign(window, {
   sendSpark,
   showConfirmModal,
   closeConfirmModal,
+  openChangeEmailModal,
+  closeChangeEmailModal,
+  submitChangeEmail,
+  openChangePasswordModal,
+  closeChangePasswordModal,
+  submitChangePassword,
   handleConfirmModalAction,
   confirmSignOut,
   confirmDeleteAccount,
