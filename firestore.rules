@@ -1,0 +1,184 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function userFieldsArePublic(data) {
+      return data.keys().hasOnly([
+        'name',
+        'city',
+        'bio',
+        'photoURL',
+        'interests',
+        'intent',
+        'createdAt',
+        'updatedAt'
+      ])
+      && data.name is string
+      && data.city is string
+      && data.bio is string
+      && data.photoURL is string
+      && data.interests is list
+      && data.intent is string;
+    }
+
+    function validUserProfileWrite(data) {
+      return userFieldsArePublic(data)
+      && data.interests.size() <= 50
+      && data.bio.size() <= 150;
+    }
+
+    function roomUserIds(roomId) {
+      return roomId.split('_');
+    }
+
+    function canonicalRoomId(uid1, uid2) {
+      return uid1 < uid2 ? uid1 + '_' + uid2 : uid2 + '_' + uid1;
+    }
+
+    function isRoomParticipant(roomId) {
+      let userIds = roomUserIds(roomId);
+      return signedIn()
+      && userIds.size() == 2
+      && userIds[0] != userIds[1]
+      && roomId == canonicalRoomId(userIds[0], userIds[1])
+      && userIds.hasAny([request.auth.uid]);
+    }
+
+    function validChatMessage(data) {
+      return data.keys().hasOnly(['text', 'senderId', 'timestamp'])
+      && data.senderId == request.auth.uid
+      && data.text is string
+      && data.text.size() > 0
+      && data.text.size() < 1000
+      && data.timestamp is timestamp;
+    }
+
+    function validTypingIndicator(data) {
+      return data.keys().hasOnly(['isTyping', 'updatedAt'])
+      && data.isTyping is bool
+      && data.updatedAt is timestamp;
+    }
+
+    function validSpaceMemberWrite(spaceId, uid) {
+      return isOwner(uid)
+      && exists(/databases/$(database)/documents/spaces/$(spaceId));
+    }
+
+    function validSpaceJoin(spaceId) {
+      let memberPath = /databases/$(database)/documents/spaces/$(spaceId)/members/$(request.auth.uid);
+      return signedIn()
+      && !exists(memberPath)
+      && getAfter(memberPath).exists()
+      && request.resource.data.diff(resource.data).changedKeys().hasOnly(['memberCount'])
+      && request.resource.data.memberCount == resource.data.memberCount + 1;
+    }
+
+    match /users/{uid} {
+      allow create, update: if isOwner(uid) && validUserProfileWrite(request.resource.data);
+      allow delete: if isOwner(uid);
+      allow get, list: if signedIn() && (isOwner(uid) || userFieldsArePublic(resource.data));
+
+      match /seenUsers/{seenUid} {
+        allow get, list, create, update, delete: if isOwner(uid);
+      }
+    }
+
+    match /chatRooms/{roomId} {
+      allow get, list, create, update, delete: if isRoomParticipant(roomId);
+
+      match /messages/{msgId} {
+        allow get, list: if isRoomParticipant(roomId);
+        allow create: if isRoomParticipant(roomId) && validChatMessage(request.resource.data);
+        allow update: if isRoomParticipant(roomId)
+          && resource.data.senderId == request.auth.uid
+          && validChatMessage(request.resource.data);
+        allow delete: if isRoomParticipant(roomId)
+          && resource.data.senderId == request.auth.uid;
+      }
+
+      match /typing/{uid} {
+        allow get, list: if isRoomParticipant(roomId);
+        allow create, update: if isRoomParticipant(roomId) && isOwner(uid) && validTypingIndicator(request.resource.data);
+        allow delete: if isRoomParticipant(roomId) && isOwner(uid);
+      }
+    }
+
+    match /connections/{roomId} {
+      allow get, list, create, update, delete: if isRoomParticipant(roomId);
+
+      match /messages/{msgId} {
+        allow get, list: if isRoomParticipant(roomId);
+        allow create: if isRoomParticipant(roomId) && validChatMessage(request.resource.data);
+        allow update: if isRoomParticipant(roomId)
+          && resource.data.senderId == request.auth.uid
+          && validChatMessage(request.resource.data);
+        allow delete: if isRoomParticipant(roomId)
+          && resource.data.senderId == request.auth.uid;
+      }
+    }
+
+    match /chats/{roomId} {
+      allow get, list, create, update, delete: if isRoomParticipant(roomId);
+
+      match /messages/{msgId} {
+        allow get, list: if isRoomParticipant(roomId);
+        allow create: if isRoomParticipant(roomId) && validChatMessage(request.resource.data);
+        allow update: if isRoomParticipant(roomId)
+          && resource.data.senderId == request.auth.uid
+          && validChatMessage(request.resource.data);
+        allow delete: if isRoomParticipant(roomId)
+          && resource.data.senderId == request.auth.uid;
+      }
+    }
+
+    match /spaces/{spaceId} {
+      allow get, list: if signedIn();
+      allow create, delete: if false;
+      allow update: if validSpaceJoin(spaceId);
+
+      match /members/{uid} {
+        allow get, list: if isOwner(uid);
+        allow create: if validSpaceMemberWrite(spaceId, uid)
+          && request.resource.data.keys().hasOnly(['userId', 'joinedAt'])
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.joinedAt is timestamp;
+        allow update: if validSpaceMemberWrite(spaceId, uid)
+          && request.resource.data.keys().hasOnly(['userId', 'joinedAt'])
+          && request.resource.data.userId == request.auth.uid;
+        allow delete: if validSpaceMemberWrite(spaceId, uid);
+      }
+
+      match /messages/{msgId} {
+        allow get, list: if signedIn();
+        allow create: if signedIn()
+          && exists(/databases/$(database)/documents/spaces/$(spaceId)/members/$(request.auth.uid))
+          && request.resource.data.keys().hasOnly(['text', 'senderId', 'timestamp'])
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() < 1000
+          && request.resource.data.timestamp is timestamp;
+        allow update: if signedIn()
+          && exists(/databases/$(database)/documents/spaces/$(spaceId)/members/$(request.auth.uid))
+          && resource.data.senderId == request.auth.uid
+          && request.resource.data.keys().hasOnly(['text', 'senderId', 'timestamp'])
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() < 1000
+          && request.resource.data.timestamp is timestamp;
+        allow delete: if signedIn()
+          && exists(/databases/$(database)/documents/spaces/$(spaceId)/members/$(request.auth.uid))
+          && resource.data.senderId == request.auth.uid;
+      }
+    }
+  }
+}
