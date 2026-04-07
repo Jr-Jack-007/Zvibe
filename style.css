@@ -1,23 +1,29 @@
 /* ===== ZVIBE — GLOBAL STYLES ===== */
 :root {
   color-scheme: light;
-  --purple: #7F77DD;
+  --primary: #7F77DD;
+  --primary-dark: #534AB7;
+  --accent: #1D9E75;
+  --text: #1a1a1a;
+  --text-muted: #6b7280;
+  --border: #e5e3de;
+  --bg: #f8f7f5;
+  --bg-card: #ffffff;
+
+  /* Backward-compatible aliases used by existing component styles */
+  --purple: var(--primary);
   --purple-700: #5e54cc;
   --purple-900: #3b3391;
+  --purple-dark: var(--primary-dark);
   --purple-light: #eeedfe;
-  --teal: #1D9E75;
+  --teal: var(--accent);
   --teal-light: #e1f5ee;
   --coral: #D85A30;
   --coral-light: #faece7;
   --amber: #BA7517;
   --amber-light: #faeeda;
-  --text: #15161a;
-  --text-muted: #5f6676;
   --text-hint: #9098a8;
-  --bg: #f5f3f8;
-  --bg-card: rgba(255, 255, 255, 0.9);
   --surface: #ffffff;
-  --border: rgba(28, 35, 51, 0.08);
   --border-strong: rgba(28, 35, 51, 0.14);
   --radius: 18px;
   --radius-sm: 12px;
@@ -104,6 +110,7 @@ img {
 
 /* ===== TYPOGRAPHY ===== */
 h1, h2, h3 { font-family: 'Syne', sans-serif; }
+.accent { color: var(--primary); }
 
 /* ===== BUTTONS ===== */
 .btn-primary {
