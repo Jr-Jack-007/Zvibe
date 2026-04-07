@@ -4,12 +4,12 @@ import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.13.2/firebas
 import { getStorage } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js';
 
 const firebaseConfig = {
-  apiKey: 'REPLACE_WITH_FIREBASE_CONSOLE_VALUE',
-  authDomain: 'REPLACE_WITH_FIREBASE_CONSOLE_VALUE',
-  projectId: 'REPLACE_WITH_FIREBASE_CONSOLE_VALUE',
-  storageBucket: 'REPLACE_WITH_FIREBASE_CONSOLE_VALUE',
-  messagingSenderId: 'REPLACE_WITH_FIREBASE_CONSOLE_VALUE',
-  appId: 'REPLACE_WITH_FIREBASE_CONSOLE_VALUE'
+  apiKey: 'AIzaSyD6qaK7fAkC644P_fHsYQ3bywWOdgeDODs',
+  authDomain: 'zvibe-5371c.firebaseapp.com',
+  projectId: 'zvibe-5371c',
+  storageBucket: 'zvibe-5371c.firebasestorage.app',
+  messagingSenderId: '532932953083',
+  appId: '1:532932953083:web:9fdecce80dede5ae7b015e'
 };
 
 const app = initializeApp(firebaseConfig);
